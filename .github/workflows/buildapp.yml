@@ -164,6 +164,39 @@ jobs:
           EOF
           # Manually install the Open in YouTube extension
           cp -R Extensions/*.appex tmp/Payload/YouTube.app/PlugIns
+
+          # Fix extension bundle IDs to match the parent app bundle ID
+          python - <<EOF
+          import plistlib, os, glob
+
+          parent_bundle_id = "${{ inputs.bundle_id }}"
+          plugins_dir = "tmp/Payload/YouTube.app/PlugIns"
+
+          for appex in glob.glob(f"{plugins_dir}/*.appex"):
+              plist_path = os.path.join(appex, "Info.plist")
+              if not os.path.exists(plist_path):
+                  continue
+              with open(plist_path, "rb") as f:
+                  plist = plistlib.load(f)
+
+              old_id = plist.get("CFBundleIdentifier", "")
+              # Derive suffix after last component of original parent ID
+              # e.g. com.google.ios.youtube.OpenYouTube.Extension -> OpenYouTube.Extension
+              original_parent = "com.google.ios.youtube"
+              if old_id.startswith(original_parent + "."):
+                  suffix = old_id[len(original_parent) + 1:]
+                  new_id = f"{parent_bundle_id}.{suffix}"
+              else:
+                  # fallback: just append appex folder name
+                  suffix = os.path.basename(appex).replace(".appex", "")
+                  new_id = f"{parent_bundle_id}.{suffix}"
+
+              print(f"Rewriting {old_id} -> {new_id}")
+              plist["CFBundleIdentifier"] = new_id
+
+              with open(plist_path, "wb") as f:
+                  plistlib.dump(plist, f)
+          EOF
         env:
           THEOS: ${{ github.workspace }}/theos
           YOUTUBE_URL: ${{ env.URL_YT }}
